@@ -1,3 +1,3 @@
-# DeepClean Implementation
+# AFibMethod Implementation
 
 This repository contains my implementation of the quality assessement algorithm, as described in the paper "[A Supervised Approach to Robust Photoplethysmography Quality Assessment](https://pubmed.ncbi.nlm.nih.gov/30951482/)" (2020). This method, let's call it AFibMethod for brevity, uses feature engineering and simple non neural network ML techniques to classifiy the quality of Photoplethysmogram (PPG) recordings. In our scenario we are using the same approach for ABP and ECG artifact detection.
