@@ -37,3 +37,13 @@ def has_overlap(candidate_interval, test_instances):
     return False
 
 	
+def clean_dead_signals(X, y):
+    # Removing values from X that are less than or equal to 0 for more than 50% of duration
+    mask = X <= 0
+    count_le_zero = np.sum(mask, axis=1)
+    # Find the rows where more than 50% of the elements are <= 0
+    rows_to_remove = count_le_zero > (X.shape[1] / 2)
+    rows_to_keep = ~rows_to_remove
+
+    # Apply the mask to filter out the rows in
+    return X[rows_to_keep], y[rows_to_keep] 
