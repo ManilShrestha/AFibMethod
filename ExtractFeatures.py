@@ -7,15 +7,20 @@ import scipy.signal as signal
 import nolds
 from tqdm import tqdm
 from Utilities import * 
-from concurrent.futures import ThreadPoolExecutor
-
 
 class ExtractFeatures:
-    def __init__(self, X) -> None:
+    def __init__(self, X, sampling_rate=125) -> None:
         self.X = X
-
+        self.sampling_rate = sampling_rate
 
     def get_features(self):
+        period_features = self.compute_periods_beat_features(self.X)
+        period_features_arr = np.column_stack(list(period_features.values()))
+
+        mean_auc_feature = self.compute_mean_auc_beats(self.X)
+        mean_auc_feature_arr = np.column_stack(list(mean_auc_feature.values()))
+
+
         time_domain_stats = self.compute_time_domain_statistics(self.X)
         time_domain_stats_arr = np.column_stack(list(time_domain_stats.values()))
 
@@ -28,8 +33,8 @@ class ExtractFeatures:
 
         B2B_diff_features = self.compute_b2b_diff_features(self.X)
         B2B_diff_features_arr = np.column_stack(list(B2B_diff_features.values()))
-
-        features = np.hstack((time_domain_stats_arr, freq_domain_stats_arr, poincare_features_arr, B2B_diff_features_arr))
+        
+        features = np.hstack((time_domain_stats_arr, freq_domain_stats_arr, poincare_features_arr, B2B_diff_features_arr, period_features_arr, mean_auc_feature_arr))
         
         # Zero out the nans, infs to ensure numerical stability
         return np.nan_to_num(features, nan=0.0, posinf=0.0, neginf=0.0)
@@ -131,25 +136,25 @@ class ExtractFeatures:
         return features
     
     # Beat to Beat Analysis
-    def detect_peaks(self, signaldata, sampling_rate=125):
+    def detect_peaks(self, signaldata):
         # Use a peak detection algorithm, scipy's find_peaks could be suitable
-        min_distance = int(sampling_rate * 0.3)  
+        min_distance = int(self.sampling_rate * 0.3)  
         peaks, _ = signal.find_peaks(signaldata, distance=min_distance)  # distance at least around 3 seconds
 
         return peaks
 
 
-    def compute_intervals(self, peaks, sampling_rate):
+    def compute_intervals(self, peaks):
         # Convert peak indices to time intervals in seconds
-        intervals = np.diff(peaks) / sampling_rate
+        intervals = np.diff(peaks) / self.sampling_rate
         return intervals
 
 
-    def compute_B2BInterval(self, data, sampling_rate=125):
+    def compute_B2BInterval(self, data):
         results = []
         for signaldata in data:
-            peaks = self.detect_peaks(signaldata, sampling_rate)
-            intervals = self.compute_intervals(peaks, sampling_rate)
+            peaks = self.detect_peaks(signaldata)
+            intervals = self.compute_intervals(peaks)
             results.append(intervals)
         return results
 
@@ -198,9 +203,9 @@ class ExtractFeatures:
             'SD1_SD2_ratio': np.array(SD1_SD2_ratio)
         }
 
-    def extract_b2b_segments(self, data_signal, sampling_rate=125):
+    def extract_b2b_segments(self, data_signal):
         # Detect peaks and extract segments between them
-        peaks = self.detect_peaks(data_signal, sampling_rate)
+        peaks = self.detect_peaks(data_signal)
         segments = [data_signal[peaks[i-1]:peaks[i]] for i in range(1, len(peaks))]
         return segments
 
@@ -230,36 +235,46 @@ class ExtractFeatures:
         # Calculate IQRs of the computed statistics
         return { f'IQR_{key}': stats.iqr(stat) for key, stat in statistics.items() }
 
-    def parallel_feature_computation(self, segments):
-        return self.calculate_b2b_diff_features(segments)
-    
     def compute_b2b_diff_features(self, data):
-        results = {key: [] for key in ['IQR_mean', 'IQR_median', 'IQR_std', 'IQR_var', 'IQR_iqr', 'IQR_range', 
-                                    'IQR_skew', 'IQR_kurtosis', 'IQR_rms', 'IQR_samp_entropy', 
-                                    'IQR_shannon_entropy', 'IQR_mean_fd', 'IQR_std_fd']}
+        results = { key: [] for key in ['IQR_mean', 'IQR_median', 'IQR_std', 'IQR_var', 'IQR_iqr', 'IQR_range', 
+                                        'IQR_skew', 'IQR_kurtosis', 'IQR_rms', 'IQR_samp_entropy', 
+                                        'IQR_shannon_entropy', 'IQR_mean_fd', 'IQR_std_fd'] }
+
+        for segments in tqdm([self.extract_b2b_segments(ep) for ep in data]):
+            feature_result = self.calculate_b2b_diff_features(segments)
+            for key in results:
+                results[key].append(feature_result[key])
+
+        return { key: np.array(val) for key, val in results.items() }
+    
+
+    def compute_periods_beat_features(self, data):
+        min_period, max_period = [], []
+        for peaks in tqdm([self.detect_peaks(ep) for ep in data]):
+            periods_in_samples = np.diff(peaks)
+
+            # Convert periods from samples to seconds
+            periods_in_seconds = periods_in_samples / self.sampling_rate
+            # Calculate minimum and maximum period
+            min_period.append(np.min(periods_in_seconds))
+            max_period.append(np.max(periods_in_seconds))
         
-        with ThreadPoolExecutor() as executor:
-            # Create a list of future objects
-            futures = [executor.submit(self.extract_b2b_segments, ep) for ep in data]
-            segments_list = [f.result() for f in tqdm(futures, total=len(futures))]
-            
-            # Process each segment list in parallel
-            feature_futures = [executor.submit(self.parallel_feature_computation, segments) for segments in segments_list]
-            for future in tqdm(feature_futures, total=len(feature_futures)):
-                feature_result = future.result()
-                for key in results:
-                    results[key].append(feature_result[key])
+        return {
+            'min_period': np.array(min_period),
+            'max_period': np.array(max_period)
+        }
+    
+    def compute_mean_auc_beats(self, data):
+        log_info('Calculating mean AUC of beats in each segment.')
 
-        return {key: np.array(val) for key, val in results.items()}
+        mean_area = []
+        # Directly iterate with progress bar, extract segments on the fly
+        for ep in tqdm(data, desc="Processing data"):
+            segments = self.extract_b2b_segments(ep)
+            # Compute areas using list comprehension and np.trapz directly
+            area_segment = [np.trapz(beat, dx=1/self.sampling_rate) for beat in segments]
+            # Calculate the mean area for the segment if it is not empty
+            if area_segment:
+                mean_area.append(np.mean(area_segment))
 
-    # def compute_b2b_diff_features(self, data):
-    #     results = { key: [] for key in ['IQR_mean', 'IQR_median', 'IQR_std', 'IQR_var', 'IQR_iqr', 'IQR_range', 
-    #                                     'IQR_skew', 'IQR_kurtosis', 'IQR_rms', 'IQR_samp_entropy', 
-    #                                     'IQR_shannon_entropy', 'IQR_mean_fd', 'IQR_std_fd'] }
-
-    #     for segments in tqdm([self.extract_b2b_segments(ep) for ep in data]):
-    #         feature_result = self.calculate_b2b_diff_features(segments)
-    #         for key in results:
-    #             results[key].append(feature_result[key])
-
-    #     return { key: np.array(val) for key, val in results.items() }
+        return {'mean_beat_auc': np.array(mean_area)}
