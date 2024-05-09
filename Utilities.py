@@ -1,5 +1,6 @@
 from datetime import datetime
 import numpy as np
+import pickle
 
 def log_info(log_message):
 	print( datetime.now().strftime("%H:%M:%S"),":\t ", log_message , "\n")
@@ -47,3 +48,8 @@ def clean_dead_signals(X, y):
 
     # Apply the mask to filter out the rows in
     return X[rows_to_keep], y[rows_to_keep] 
+
+
+def save_model(model, path):
+    with open(path,'wb') as f:
+        pickle.dump(model,f)

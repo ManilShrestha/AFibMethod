@@ -251,13 +251,19 @@ class ExtractFeatures:
     def compute_periods_beat_features(self, data):
         min_period, max_period = [], []
         for peaks in tqdm([self.detect_peaks(ep) for ep in data]):
-            periods_in_samples = np.diff(peaks)
+            if len(peaks) > 1:  # Ensure there are at least two peaks to calculate periods
+                periods_in_samples = np.diff(peaks)
 
-            # Convert periods from samples to seconds
-            periods_in_seconds = periods_in_samples / self.sampling_rate
-            # Calculate minimum and maximum period
-            min_period.append(np.min(periods_in_seconds))
-            max_period.append(np.max(periods_in_seconds))
+                # Convert periods from samples to seconds
+                periods_in_seconds = periods_in_samples / self.sampling_rate
+
+                # Calculate minimum and maximum period
+                min_period.append(np.min(periods_in_seconds))
+                max_period.append(np.max(periods_in_seconds))
+            else:
+                # Handle cases with fewer than two peaks
+                min_period.append(np.nan)  # Append NaN or another placeholder to indicate no calculation possible
+                max_period.append(np.nan)
         
         return {
             'min_period': np.array(min_period),
@@ -276,5 +282,7 @@ class ExtractFeatures:
             # Calculate the mean area for the segment if it is not empty
             if area_segment:
                 mean_area.append(np.mean(area_segment))
+            else:
+                mean_area.append(np.nan)
 
         return {'mean_beat_auc': np.array(mean_area)}

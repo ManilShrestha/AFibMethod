@@ -12,11 +12,11 @@ def main():
         ,'location':'na'
         ,'scale_wrt_hd5':1e3
     }
-    segment_length_sec = 30
+    segment_length_sec = 5
 
     preprocess_abp = Preprocess(hdf5_file_path,annotation_file, annotation_metadata, segment_length_sec=segment_length_sec)
  
-    preprocess_abp.create_train_val_test_set('data/ABP_train_samples.csv', 'data/ABP_val_samples.csv', 'data/ABP_test_samples.csv')
+    preprocess_abp.create_train_val_test_set('data/ABP_train_samples_5sec.csv', 'data/ABP_val_samples_5sec.csv', 'data/ABP_test_samples_5sec.csv')
 
 if __name__== "__main__":
     main()
